@@ -3,6 +3,7 @@ const url = require('url');
 const exec = require('child_process').exec;
 const querystring = require('querystring');
 const request = require('request');
+const express = require('express');
 
 const config = {
 	ip:'10.0.0.13',
@@ -20,28 +21,10 @@ const config = {
 const DEVICE_STATUS_BORN = 0;
 const DEVICE_STATUS_LIVE = 1;
 const DEVICE_STATUS_DEAD = 2;
+const KEEP_ALIVE_PERIOD = 300000;
 
-var status = 'idle';
+let status = 'idle';
 var mediaProc = null;
-
-function parseQueryString(qs) {
-
-	var params = [], retVal = {};
-
-	if (typeof qs === 'string') {
-		params = qs.split('&');
-		for (var i = 0, count = params.length; i < count; i++) {
-			var
-			bits = params[i].split('='),
-			key = bits[0],
-			val = bits.length > 1 ? bits[1] : true;
-			retVal[key] = val;
-		}
-	}
-
-	return retVal;
-
-}
 
 function http_get(url) {
 	return new Promise((resolve, reject) => {
@@ -116,12 +99,26 @@ function contentPlay(id) {
 
 function keepAlive() {
 	api_call('device', 'register', { port:config.port, status:DEVICE_STATUS_LIVE });
-	setTimeout(keepAlive, 300000);
+	setTimeout(keepAlive, KEEP_ALIVE_PERIOD);
+}
+
+function handlePing(res) {
+	setTimeout(keepAlive, KEEP_ALIVE_PERIOD);
+	res.jsonp({ alive: true });
+}
+
+function handlePlay(req, res) {
+	contentPlay(req.query.id);
+	handleStatus(res);
+}
+
+function handleStatus(res) {
+	res.jsonp({ status });
 }
 
 // Register this client with the DXMP server
-api_call('device', 'register', { port:config.port, name:config.name, status:DEVICE_STATUS_BORN }).then((thing) => {
-	console.log('register finished', arguments);
+api_call('device', 'register', { port:config.port, name:config.name, status:DEVICE_STATUS_BORN }).catch((err) => {
+	console.error('Device registration failed', err);
 });
 
 // Upon exit, deregister this device with the server
@@ -130,38 +127,25 @@ process.on('exit', function() {
 	api_call('device', 'register', { port:config.port, name:config.name, status:DEVICE_STATUS_DEAD });
 });
 
-// Create the response server
-http.createServer(function(request, response) {
-	var
-	qs = querystring.parse(url.parse(request.url).query),
-	callback = typeof qs.callback === 'string' ? qs.callback : false,
-	retVal = 'null';
-	response.writeHead(200, { 'Content-Type':'text/javascript' });
+const app = express();
 
-	if (qs.hasOwnProperty('action')) {
-
-		console.log('Incoming request: ' + qs.action);
-
-		switch (qs.action) {
-			case 'ping': // A ping from the server to see if this device is still alive
-				retVal = '{ "alive":true}';
-				setTimeout(keepAlive, 300000);
-				break;
-			case 'play':
-				if (qs.hasOwnProperty('id')) {
-					contentPlay(qs.id);
-					retVal = '{ "status":"' + status + '" }';
-				}
-				break;
-			case 'status':
-				retVal = '{ "status":"' + status + '" }';
-				break;
-		}
+app.get('*', (req, res) => {
+	const action = req.query.action;
+	switch (action) {
+		case 'ping':
+			handlePing(res);
+			break;
+		case 'play':
+			handlePlay(req, res);
+			break;
+		case 'status':
+			handleStatus(res);
+			break;
 	}
+});
 
-	retVal = callback ? callback + '(' + retVal + ');' : retVal;
-	response.end(retVal);
-
-}).listen(config.port, (err) => {
-	console.log(`Server running on port ${config.port}`);
+app.listen(config.port, (err) => {
+	if (!err) {
+		console.log(`Listening on port ${config.port}`);
+	}
 });
