@@ -2,6 +2,7 @@ const http = require('http');
 const url = require('url');
 const exec = require('child_process').exec;
 const querystring = require('querystring');
+const request = require('request');
 
 const config = {
 	ip:'10.0.0.13',
@@ -42,55 +43,26 @@ function parseQueryString(qs) {
 
 }
 
-function http_get(host, port, path, callback) {
-
-	var request = http.request(
-		{
-			host:host,
-			port:port,
-			path:path,
-			method:'GET'
-		},
-		function(response) {
-			if (typeof callback === 'function') {
-				response.setEncoding('utf8');
-				response.on('data', callback);
+function http_get(url) {
+	return new Promise((resolve, reject) => {
+		console.log(`Making request to ${url}`);
+		request(url, (err, res, body) => {
+			console.log(url);
+			if (err) {
+				reject(err);
+			} else {
+				resolve(body);
 			}
 		});
-	request.end();
-
+	});
 }
 
-function api_call(library, method, params, callback) {
-
-	var
-		path = '/api/?type=json&method=' + library + '.' + method,
-		i = null,
-		request = null;
-
-	if (typeof params === 'object') {
-		for (i in params) {
-			if (params.hasOwnProperty(i)) {
-				path += '&' + i + '=' + escape(params[i]);
-			}
-		}
-	}
-
-	request = http.request(
-		{
-			host:config.server.host,
-			port:config.server.port,
-			path:path,
-			method:'GET'
-		},
-		function(response) {
-			if (typeof callback === 'function') {
-				response.setEncoding('utf8');
-				response.on('data', callback);
-			}
-		});
-	request.end();
-
+function api_call(library, method, params = {}) {
+	let url = `http://${config.server.host}:${config.server.port}/api/?type=json&method=${library}.${method}`;
+	Object.keys(params).forEach((key) => {
+		url += `&${key}=${encodeURIComponent(params[key])}`;
+	});
+	return http_get(url);
 }
 
 function contentComplete(error, stdout, stderr) {
@@ -101,7 +73,7 @@ function contentComplete(error, stdout, stderr) {
 
 function contentPlay(id) {
 
-	api_call('content', 'getContent', { id:id }, function(data) {
+	api_call('content', 'getContent', { id:id }).then((data) => {
 
 		var
 			content = JSON.parse(data),
@@ -148,7 +120,7 @@ function keepAlive() {
 }
 
 // Register this client with the DXMP server
-api_call('device', 'register', { port:config.port, name:config.name, status:DEVICE_STATUS_BORN }, (thing) => {
+api_call('device', 'register', { port:config.port, name:config.name, status:DEVICE_STATUS_BORN }).then((thing) => {
 	console.log('register finished', arguments);
 });
 
