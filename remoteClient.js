@@ -1,9 +1,9 @@
-var
+const http = require('http');
+const url = require('url');
+const exec = require('child_process').exec;
+const querystring = require('querystring');
 
-/**
- * Config
- */
-config = {
+const config = {
 	ip:'10.0.0.13',
 	port:1337, // Port to listen on
 	name:'Matt Living Room', // Name of the server. This is what appears in the devices list
@@ -11,30 +11,22 @@ config = {
 		host:'dxmp.us',
 		port:80
 	}
-},
-
-/**
- * Includes
- */
-http = require('http'),
-url = require('url'),
-exec = require('child_process').exec,
-querystring = require('querystring'),
+};
 
 /**
  * Constants
  */
-DEVICE_STATUS_BORN = 0,
-DEVICE_STATUS_LIVE = 1,
-DEVICE_STATUS_DEAD = 2,
+const DEVICE_STATUS_BORN = 0;
+const DEVICE_STATUS_LIVE = 1;
+const DEVICE_STATUS_DEAD = 2;
 
-status = 'idle',
-mediaProc = null,
+var status = 'idle';
+var mediaProc = null;
 
-parseQueryString = function(qs) {
-	
+function parseQueryString(qs) {
+
 	var params = [], retVal = {};
-	
+
 	if (typeof qs === 'string') {
 		params = qs.split('&');
 		for (var i = 0, count = params.length; i < count; i++) {
@@ -47,18 +39,18 @@ parseQueryString = function(qs) {
 	}
 
 	return retVal;
-	
-},
 
-http_get = function(host, port, path, callback) {
-	
+}
+
+function http_get(host, port, path, callback) {
+
 	var request = http.request(
 		{
 			host:host,
 			port:port,
 			path:path,
 			method:'GET'
-		}, 
+		},
 		function(response) {
 			if (typeof callback === 'function') {
 				response.setEncoding('utf8');
@@ -66,16 +58,16 @@ http_get = function(host, port, path, callback) {
 			}
 		});
 	request.end();
-	
-},
 
-api_call = function(library, method, params, callback) {
-	
+}
+
+function api_call(library, method, params, callback) {
+
 	var
 		path = '/api/?type=json&method=' + library + '.' + method,
 		i = null,
 		request = null;
-	
+
 	if (typeof params === 'object') {
 		for (i in params) {
 			if (params.hasOwnProperty(i)) {
@@ -83,14 +75,14 @@ api_call = function(library, method, params, callback) {
 			}
 		}
 	}
-	
+
 	request = http.request(
 		{
 			host:config.server.host,
 			port:config.server.port,
 			path:path,
 			method:'GET'
-		}, 
+		},
 		function(response) {
 			if (typeof callback === 'function') {
 				response.setEncoding('utf8');
@@ -98,36 +90,36 @@ api_call = function(library, method, params, callback) {
 			}
 		});
 	request.end();
-	
-},
 
-contentComplete = function(error, stdout, stderr) {
+}
+
+function contentComplete(error, stdout, stderr) {
 	console.log('Media finished');
 	status = 'idle';
 	mediaProc = null;
-},
+}
 
-contentPlay = function(id) {
-	
+function contentPlay(id) {
+
 	api_call('content', 'getContent', { id:id }, function(data) {
-		
+
 		var
 			content = JSON.parse(data),
 			item = null,
 			file = null,
 			i = 0,
 			count = 0;
-			
+
 		if (content.body.count > 0) {
 			item = content.body.content[0];
-			
+
 			console.log('Playing ' + item.type + ' "' + item.title + '"');
-			
+
 			if (status !== 'idle' || null != mediaProc) {
 				mediaProc.kill();
 				mediaProc = null;
 			}
-			
+
 			switch (item.type) {
 				case 'song': // 5978
 					mediaProc = exec('/usr/bin/omxplayer "http://dxmp.s3.amazonaws.com/songs/' + item.meta.filename + '"');
@@ -146,62 +138,58 @@ contentPlay = function(id) {
 					break;
 			}
 		}
-		
-	});
-},
 
-keepAlive = function() {
+	});
+}
+
+function keepAlive() {
 	api_call('device', 'register', { port:config.port, status:DEVICE_STATUS_LIVE });
 	setTimeout(keepAlive, 300000);
-},
+}
 
-init = (function() {
-	
-	// Register this client with the DXMP server
-	api_call('device', 'register', { port:config.port, name:config.name, status:DEVICE_STATUS_BORN }, (thing) => {
-		console.log('register finished', arguments);
-	});
-	
-	// Upon exit, deregister this device with the server
-	process.on('exit', function() {
-		console.log('Exiting. Deregistering device');
-		api_call('device', 'register', { port:config.port, name:config.name, status:DEVICE_STATUS_DEAD });
-	});
-	
-	// Create the response server
-	http.createServer(function(request, response) {
-		var
-		qs = querystring.parse(url.parse(request.url).query),
-		callback = typeof qs.callback === 'string' ? qs.callback : false,
-		retVal = 'null';
-		response.writeHead(200, { 'Content-Type':'text/javascript' });
-		
-		if (qs.hasOwnProperty('action')) {
-			
-			console.log('Incoming request: ' + qs.action);
-			
-			switch (qs.action) {
-				case 'ping': // A ping from the server to see if this device is still alive
-					retVal = '{ "alive":true}';
-					setTimeout(keepAlive, 300000);
-					break;
-				case 'play':
-					if (qs.hasOwnProperty('id')) {
-						contentPlay(qs.id);
-						retVal = '{ "status":"' + status + '" }';
-					}
-					break;
-				case 'status':
+// Register this client with the DXMP server
+api_call('device', 'register', { port:config.port, name:config.name, status:DEVICE_STATUS_BORN }, (thing) => {
+	console.log('register finished', arguments);
+});
+
+// Upon exit, deregister this device with the server
+process.on('exit', function() {
+	console.log('Exiting. Deregistering device');
+	api_call('device', 'register', { port:config.port, name:config.name, status:DEVICE_STATUS_DEAD });
+});
+
+// Create the response server
+http.createServer(function(request, response) {
+	var
+	qs = querystring.parse(url.parse(request.url).query),
+	callback = typeof qs.callback === 'string' ? qs.callback : false,
+	retVal = 'null';
+	response.writeHead(200, { 'Content-Type':'text/javascript' });
+
+	if (qs.hasOwnProperty('action')) {
+
+		console.log('Incoming request: ' + qs.action);
+
+		switch (qs.action) {
+			case 'ping': // A ping from the server to see if this device is still alive
+				retVal = '{ "alive":true}';
+				setTimeout(keepAlive, 300000);
+				break;
+			case 'play':
+				if (qs.hasOwnProperty('id')) {
+					contentPlay(qs.id);
 					retVal = '{ "status":"' + status + '" }';
-					break;
-			}
+				}
+				break;
+			case 'status':
+				retVal = '{ "status":"' + status + '" }';
+				break;
 		}
-		
-		retVal = callback ? callback + '(' + retVal + ');' : retVal;
-		response.end(retVal);
-		
-	}).listen(config.port, (err) => {
-		console.log(`Server running on port ${config.port}`);
-	});
+	}
 
-}());
+	retVal = callback ? callback + '(' + retVal + ');' : retVal;
+	response.end(retVal);
+
+}).listen(config.port, (err) => {
+	console.log(`Server running on port ${config.port}`);
+});
