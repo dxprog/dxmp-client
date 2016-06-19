@@ -1,12 +1,8 @@
-const http = require('http');
-const url = require('url');
 const exec = require('child_process').exec;
-const querystring = require('querystring');
 const request = require('request');
 const express = require('express');
 
 const config = {
-	ip:'10.0.0.13',
 	port:1337, // Port to listen on
 	name:'Matt Living Room', // Name of the server. This is what appears in the devices list
 	server:{ // Path to DXMP host
@@ -26,11 +22,12 @@ const KEEP_ALIVE_PERIOD = 300000;
 let status = 'idle';
 var mediaProc = null;
 
-function http_get(url) {
+/**
+ * Effectively a promise wrapper around `request`
+ */
+function httpGet(url) {
 	return new Promise((resolve, reject) => {
-		console.log(`Making request to ${url}`);
 		request(url, (err, res, body) => {
-			console.log(url);
 			if (err) {
 				reject(err);
 			} else {
@@ -40,12 +37,22 @@ function http_get(url) {
 	});
 }
 
-function api_call(library, method, params = {}) {
+/**
+ * Makes an API call to the DXMP server
+ */
+function makeServerCall(library, method, params = {}) {
 	let url = `http://${config.server.host}:${config.server.port}/api/?type=json&method=${library}.${method}`;
 	Object.keys(params).forEach((key) => {
 		url += `&${key}=${encodeURIComponent(params[key])}`;
 	});
-	return http_get(url);
+	return httpGet(url).then((body) => {
+		try {
+			body = JSON.parse(body);
+			return body;
+		} catch (exc) {
+			throw new Error('Received invalid payload from server', exc);
+		}
+	});
 }
 
 function contentComplete(error, stdout, stderr) {
@@ -55,50 +62,26 @@ function contentComplete(error, stdout, stderr) {
 }
 
 function contentPlay(id) {
-
-	api_call('content', 'getContent', { id:id }).then((data) => {
-
-		var
-			content = JSON.parse(data),
-			item = null,
-			file = null,
-			i = 0,
-			count = 0;
-
+	makeServerCall('content', 'getContent', { id:id }).then((content) => {
 		if (content.body.count > 0) {
-			item = content.body.content[0];
+			const item = content.body.content[0];
 
-			console.log('Playing ' + item.type + ' "' + item.title + '"');
+			console.log(`Playing ${item.type} "${item.title}"`);
 
 			if (status !== 'idle' || null != mediaProc) {
 				mediaProc.kill();
 				mediaProc = null;
 			}
 
-			switch (item.type) {
-				case 'song': // 5978
-					mediaProc = exec('/usr/bin/omxplayer "http://dxmp.s3.amazonaws.com/songs/' + item.meta.filename + '"');
-					status = 'playing';
-					mediaProc.on('exit', contentComplete);
-					break;
-				case 'video': // 5523
-					for (i = 0, count = item.meta.files.length; i < count; i++) {
-						file = item.meta.files[i];
-						if (file.extension === 'm4v' || file.extension === 'mkv') {
-							mediaProc = exec('/usr/bin/omxplayer "http://dev.dxprog.com/dxmpv2/videos/' + item.meta.path + '/' + file.filename + '"');
-							status = 'playing';
-							mediaProc.on('exit', contentComplete);
-						}
-					}
-					break;
-			}
+			mediaProc = exec(`/usr/bin/omxplayer "http://dxmp.s3.amazonaws.com/songs/${item.meta.filename}"`);
+			status = 'playing';
+			mediaProc.on('exit', contentComplete);
 		}
-
 	});
 }
 
 function keepAlive() {
-	api_call('device', 'register', { port:config.port, status:DEVICE_STATUS_LIVE });
+	makeServerCall('device', 'register', { port:config.port, status:DEVICE_STATUS_LIVE });
 	setTimeout(keepAlive, KEEP_ALIVE_PERIOD);
 }
 
@@ -115,17 +98,6 @@ function handlePlay(req, res) {
 function handleStatus(res) {
 	res.jsonp({ status });
 }
-
-// Register this client with the DXMP server
-api_call('device', 'register', { port:config.port, name:config.name, status:DEVICE_STATUS_BORN }).catch((err) => {
-	console.error('Device registration failed', err);
-});
-
-// Upon exit, deregister this device with the server
-process.on('exit', function() {
-	console.log('Exiting. Deregistering device');
-	api_call('device', 'register', { port:config.port, name:config.name, status:DEVICE_STATUS_DEAD });
-});
 
 const app = express();
 
@@ -147,5 +119,15 @@ app.get('*', (req, res) => {
 app.listen(config.port, (err) => {
 	if (!err) {
 		console.log(`Listening on port ${config.port}`);
+		// Register this client with the DXMP server
+		makeServerCall('device', 'register', { port: config.port, name: config.name, status: DEVICE_STATUS_BORN }).catch((err) => {
+			console.error('Device registration failed', err);
+		});
 	}
+});
+
+// Upon exit, deregister this device with the server
+process.on('exit', function() {
+	console.log('Exiting. Deregistering device');
+	makeServerCall('device', 'register', { port:config.port, name:config.name, status:DEVICE_STATUS_DEAD });
 });
