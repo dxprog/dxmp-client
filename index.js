@@ -18,8 +18,11 @@ const DEVICE_STATUS_BORN = 0;
 const DEVICE_STATUS_LIVE = 1;
 const DEVICE_STATUS_DEAD = 2;
 const KEEP_ALIVE_PERIOD = 300000;
+const PLAYING = 'playing';
+const PAUSED = 'paused';
+const IDLE = 'idle';
 
-let status = 'idle';
+let status = IDLE;
 var mediaProc = null;
 
 /**
@@ -57,7 +60,7 @@ function makeServerCall(library, method, params = {}) {
 
 function contentComplete(error, stdout, stderr) {
 	console.log('Media finished');
-	status = 'idle';
+	status = IDLE;
 	mediaProc = null;
 }
 
@@ -68,14 +71,14 @@ function contentPlay(id) {
 
 			console.log(`Playing ${item.type} "${item.title}"`);
 
-			if (status !== 'idle' || null != mediaProc) {
+			if (status !== IDLE || null != mediaProc) {
 				mediaProc.stop();
 				mediaProc = null;
 			}
 
 			mediaProc = new mpg123(`http://dxmp.s3.amazonaws.com/songs/${item.meta.filename}`);
 			mediaProc.play();
-			status = 'playing';
+			status = PLAYING;
 			mediaProc.on('complete', contentComplete);
 		}
 	});
@@ -96,6 +99,19 @@ function handlePlay(req, res) {
 	handleStatus(res);
 }
 
+function handlePause(res) {
+	if (mediaProc) {
+		if (status === PAUSED) {
+			mediaProc.resume();
+			status = PLAYING;
+		} else {
+			mediaProc.pause();
+			status = PAUSED;
+		}
+	}
+	res.jsonp({ okay: true });
+}
+
 function handleStatus(res) {
 	res.jsonp({ status });
 }
@@ -105,6 +121,9 @@ const app = express();
 app.get('*', (req, res) => {
 	const action = req.query.action;
 	switch (action) {
+		case 'pause':
+			handlePause(res);
+			break;
 		case 'ping':
 			handlePing(res);
 			break;
