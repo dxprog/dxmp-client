@@ -102,9 +102,11 @@ function handlePlay(req, res) {
 function handlePause(res) {
 	if (mediaProc) {
 		if (status === PAUSED) {
+			console.log('Resuming playback');
 			mediaProc.resume();
 			status = PLAYING;
 		} else {
+			console.log('Pausing playback');
 			mediaProc.pause();
 			status = PAUSED;
 		}
@@ -140,7 +142,9 @@ app.listen(config.port, (err) => {
 	if (!err) {
 		console.log(`Listening on port ${config.port}`);
 		// Register this client with the DXMP server
-		makeServerCall('device', 'register', { port: config.port, name: config.name, status: DEVICE_STATUS_BORN }).catch((err) => {
+		makeServerCall('device', 'register', { port: config.port, name: config.name, status: DEVICE_STATUS_BORN }).then(() => {
+			console.log('Successfully registered device');
+		}).catch((err) => {
 			console.error('Device registration failed', err);
 		});
 	}
