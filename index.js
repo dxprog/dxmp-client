@@ -1,6 +1,6 @@
-const exec = require('child_process').exec;
 const request = require('request');
 const express = require('express');
+const mpg123 = require('node-mpg123');
 
 const config = {
 	port:1337, // Port to listen on
@@ -69,13 +69,14 @@ function contentPlay(id) {
 			console.log(`Playing ${item.type} "${item.title}"`);
 
 			if (status !== 'idle' || null != mediaProc) {
-				mediaProc.kill();
+				mediaProc.stop();
 				mediaProc = null;
 			}
 
-			mediaProc = exec(`/usr/bin/omxplayer "http://dxmp.s3.amazonaws.com/songs/${item.meta.filename}"`);
+			mediaProc = new mpg123(`http://dxmp.s3.amazonaws.com/songs/${item.meta.filename}`);
+			mediaProc.play();
 			status = 'playing';
-			mediaProc.on('exit', contentComplete);
+			mediaProc.on('complete', contentComplete);
 		}
 	});
 }
