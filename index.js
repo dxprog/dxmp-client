@@ -41,13 +41,21 @@ function httpGet(url) {
 }
 
 /**
- * Makes an API call to the DXMP server
+ * Returns the URL for an API call
  */
-function makeServerCall(library, method, params = {}) {
+function getApiCallUrl(library, method, params = {}) {
   let url = `http://${config.server.host}:${config.server.port}/api/?type=json&method=${library}.${method}`;
   Object.keys(params).forEach((key) => {
     url += `&${key}=${encodeURIComponent(params[key])}`;
   });
+	return url;
+}
+
+/**
+ * Makes an API call to the DXMP server
+ */
+function makeServerCall(library, method, params = {}) {
+  let url = getApiCallUrl(library, method, params);
   return httpGet(url).then((body) => {
     try {
       body = JSON.parse(body);
@@ -76,7 +84,7 @@ function contentPlay(id) {
         mediaProc = null;
       }
 
-      mediaProc = new mpg123(`http://dxmp.s3.amazonaws.com/songs/${item.meta.filename}`);
+      mediaProc = new mpg123(getApiCallUrl('dxmp', 'getTrackFile', { id: item.id }));
       mediaProc.play();
       status = PLAYING;
       mediaProc.on('complete', contentComplete);
